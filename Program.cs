@@ -81,6 +81,12 @@ app.MapPost("/print/tag", async (PrintTagRequest request, TagPrinterClient print
     return Results.Ok(new { success = result.Success, message = result.Message });
 });
 
+app.MapPost("/print/guest-laundry-tag", async (PrintGuestLaundryTagRequest request, TagPrinterClient printerClient, CancellationToken cancellationToken) =>
+{
+    PrintResult result = await printerClient.PrintGuestLaundryTagAsync(request, cancellationToken);
+    return Results.Ok(new { success = result.Success, message = result.Message });
+});
+
 if (helperOptions.Attendance.Enabled)
 {
     app.MapPost("/attendance/events", async (HttpRequest request, AttendanceRelayService relay, IOptionsMonitor<CameraHelperOptions> monitor, CancellationToken cancellationToken) =>
@@ -103,3 +109,12 @@ if (helperOptions.Attendance.Enabled)
 app.Run();
 
 public record PrintTagRequest(string Tag, int TagCount);
+
+public record PrintGuestLaundryTagRequest(
+    string HotelCode,
+    string IncomingNumber,
+    string TagNumber,
+    int TotalPcs,
+    string? ProcessType,
+    string? DeliveryType,
+    string QrPayload);

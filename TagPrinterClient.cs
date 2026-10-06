@@ -95,6 +95,44 @@ public class TagPrinterClient(IOptionsMonitor<CameraHelperOptions> options, ILog
         }
     }
 
+    public async Task<PrintResult> PrintGuestLaundryTagAsync(PrintGuestLaundryTagRequest request, CancellationToken cancellationToken)
+    {
+        const int MaximumPiecesPerTagJob = 99;
+
+        if (string.IsNullOrWhiteSpace(request.TagNumber)
+            || string.IsNullOrWhiteSpace(request.HotelCode)
+            || string.IsNullOrWhiteSpace(request.IncomingNumber)
+            || string.IsNullOrWhiteSpace(request.QrPayload))
+        {
+            return PrintResult.Failed("The guest laundry tag details are incomplete.");
+        }
+
+        if (request.TotalPcs < 1 || request.TotalPcs > MaximumPiecesPerTagJob)
+        {
+            return PrintResult.Failed($"Piece count must be between 1 and {MaximumPiecesPerTagJob}.");
+        }
+
+        PrintResult result = await PrintAsync(request.TagNumber, request.TotalPcs, cancellationToken);
+        if (result.Success)
+        {
+            LogGuestLaundryTag(request);
+        }
+
+        return result;
+    }
+
+    private void LogGuestLaundryTag(PrintGuestLaundryTagRequest request)
+    {
+        logger.LogInformation(
+            "Guest laundry tag {TagNumber} printed for {IncomingNumber} ({HotelCode}), {TotalPcs} pcs, process {ProcessType}, delivery {DeliveryType}.",
+            request.TagNumber,
+            request.IncomingNumber,
+            request.HotelCode,
+            request.TotalPcs,
+            request.ProcessType,
+            request.DeliveryType);
+    }
+
     private static PrintResult WaitForCtsRelease(SerialPort serialPort)
     {
         int holdingRetries = 0;
