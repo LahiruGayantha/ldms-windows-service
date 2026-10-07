@@ -16,6 +16,7 @@ builder.Services.AddSingleton<CameraSnapshotClient>();
 builder.Services.AddSingleton<TagPrinterClient>();
 builder.Services.AddSingleton<AttendanceRelayService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AttendanceRelayService>());
+builder.Services.AddHostedService<AttendancePollingService>();
 
 var helperOptions = builder.Configuration.Get<CameraHelperOptions>() ?? new CameraHelperOptions();
 

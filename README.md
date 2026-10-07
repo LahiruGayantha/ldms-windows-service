@@ -71,6 +71,17 @@ trusted LAN (the same network the terminal itself lives on). `AllowedDeviceIp` i
 only check available at that boundary, since the terminal has no way to send our
 webhook secret on its own push.
 
+## Attendance polling
+
+`AttendancePollingService` is a background service that, every `Polling.IntervalSeconds`
+(default 60), asks the terminal for access events since its last checkpoint
+(`POST /ISAPI/AccessControl/AcsEvent?format=json`, HTTP Digest) and queues each one into
+the same durable queue as the push path, so the relay forwards them to the unchanged
+webhook. It catches punches the terminal failed to push. The checkpoint lives in
+`%ProgramData%\LdmsOutletCameraHelperttendance-poll-checkpoint.txt`; on first run it
+looks back `InitialLookbackHours`. Overlap is safe: `ldms-web-api` de-duplicates by the
+device's `serialNo`. Requires `Attendance.Enabled` and `Attendance.Polling.Enabled`.
+
 ## Build
 
 ```
@@ -102,7 +113,15 @@ dotnet publish LdmsOutletCameraHelper.csproj -c Release -r win-x64 --self-contai
     "DeviceId": 1,
     "DeviceSecret": "the-webhook-secret-shown-once-when-the-device-was-registered",
     "LdmsApiBaseUrl": "https://laundroplus-dev-api.azurewebsites.net",
-    "AllowedDeviceIp": "192.168.1.50"
+    "AllowedDeviceIp": "192.168.1.50",
+    "Polling": {
+      "Enabled": true,
+      "DeviceBaseUrl": "http://192.168.1.50",
+      "Username": "admin",
+      "Password": "the-terminal-admin-password",
+      "IntervalSeconds": 60,
+      "InitialLookbackHours": 24
+    }
   },
   "Printer": {
     "Enabled": true,
