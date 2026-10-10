@@ -1,3 +1,4 @@
+using System.Net;
 using LdmsOutletCameraHelper;
 using Microsoft.Extensions.Options;
 
@@ -16,7 +17,8 @@ builder.Services.AddSingleton<CameraSnapshotClient>();
 builder.Services.AddSingleton<TagPrinterClient>();
 builder.Services.AddSingleton<AttendanceRelayService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AttendanceRelayService>());
-builder.Services.AddHostedService<AttendancePollingService>();
+builder.Services.AddSingleton<AttendancePollingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AttendancePollingService>());
 
 var helperOptions = builder.Configuration.Get<CameraHelperOptions>() ?? new CameraHelperOptions();
 
@@ -104,6 +106,36 @@ if (helperOptions.Attendance.Enabled)
         string contentType = request.ContentType ?? "application/octet-stream";
         await relay.EnqueueAsync(contentType, bodyStream.ToArray(), cancellationToken);
         return Results.Ok();
+    });
+
+    app.MapPost("/attendance/sync", async (HttpRequest request, DateTimeOffset? from, AttendancePollingService polling, AttendanceRelayService relay, CancellationToken cancellationToken) =>
+    {
+        if (!IPAddress.IsLoopback(request.HttpContext.Connection.RemoteIpAddress ?? IPAddress.None))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        try
+        {
+            AttendanceSyncResult result = await polling.SyncNowAsync(from, cancellationToken);
+            if (result.Error is not null)
+            {
+                return Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            relay.SignalDrain();
+            return Results.Ok(new
+            {
+                queuedCount = result.QueuedCount,
+                windowStart = result.WindowStart,
+                windowEnd = result.WindowEnd,
+                pendingRelayCount = relay.PendingCount()
+            });
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return Results.Json(new { error = exception.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
     });
 }
 

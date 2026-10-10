@@ -31,6 +31,8 @@ public class AttendanceRelayService(IOptionsMonitor<CameraHelperOptions> options
         _signal.Release();
     }
 
+    public void SignalDrain() => _signal.Release();
+
     public int PendingCount() => Directory.Exists(QueueDirectory) ? Directory.GetFiles(QueueDirectory, "*.json").Length : 0;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

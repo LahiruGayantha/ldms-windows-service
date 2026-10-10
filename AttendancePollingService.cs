@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -11,7 +12,10 @@ public class AttendancePollingService(
     ILogger<AttendancePollingService> logger) : BackgroundService
 {
     private const string AcsEventPath = "/ISAPI/AccessControl/AcsEvent?format=json";
+    private const int MaxSearchIdLength = 16;
     private const string TimestampFormat = "yyyy-MM-ddTHH:mm:sszzz";
+
+    private readonly SemaphoreSlim _pollLock = new(1, 1);
 
     private static string CheckpointPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -41,11 +45,33 @@ public class AttendancePollingService(
         }
     }
 
+    public async Task<AttendanceSyncResult> SyncNowAsync(DateTimeOffset? requestedWindowStart, CancellationToken cancellationToken)
+    {
+        AttendancePollingOptions polling = options.CurrentValue.Attendance.Polling;
+        await _pollLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await PollOnceAsync(polling, requestedWindowStart, cancellationToken);
+        }
+        finally
+        {
+            _pollLock.Release();
+        }
+    }
+
     private async Task PollOnceSafelyAsync(AttendancePollingOptions polling, CancellationToken cancellationToken)
     {
         try
         {
-            await PollOnceAsync(polling, cancellationToken);
+            await _pollLock.WaitAsync(cancellationToken);
+            try
+            {
+                await PollOnceAsync(polling, null, cancellationToken);
+            }
+            finally
+            {
+                _pollLock.Release();
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -56,21 +82,27 @@ public class AttendancePollingService(
         }
     }
 
-    private async Task PollOnceAsync(AttendancePollingOptions polling, CancellationToken cancellationToken)
+    private async Task<AttendanceSyncResult> PollOnceAsync(
+        AttendancePollingOptions polling,
+        DateTimeOffset? requestedWindowStart,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(polling.DeviceBaseUrl))
         {
             logger.LogWarning("Attendance polling is enabled but Attendance:Polling:DeviceBaseUrl is not configured.");
-            return;
+            return new AttendanceSyncResult(0, null, null, "Attendance:Polling:DeviceBaseUrl is not configured.");
         }
 
-        DateTimeOffset windowStart = ReadCheckpoint() ?? DateTimeOffset.Now.AddHours(-Math.Max(polling.InitialLookbackHours, 1));
+        DateTimeOffset? checkpoint = ReadCheckpoint();
+        DateTimeOffset windowStart = requestedWindowStart
+            ?? checkpoint
+            ?? DateTimeOffset.Now.AddHours(-Math.Max(polling.InitialLookbackHours, 1));
         DateTimeOffset windowEnd = DateTimeOffset.Now;
         DateTimeOffset latestEventTime = windowStart;
         int enqueuedCount = 0;
 
         using HttpClient httpClient = CreateDeviceHttpClient(polling);
-        string searchId = Guid.NewGuid().ToString("N");
+        string searchId = Guid.NewGuid().ToString("N")[..MaxSearchIdLength];
         int resultPosition = 0;
         bool hasMorePages = true;
 
@@ -93,15 +125,20 @@ public class AttendancePollingService(
 
             resultPosition += events.Count;
             hasMorePages = events.Count > 0
-                && string.Equals(page?["AcsEvent"]?["responseStatusStr"]?.ToString(), "MORE", StringComparison.OrdinalIgnoreCase);
+                && string.Equals(page?["AcsEvent"]?["responseStatusStrg"]?.ToString(), "MORE", StringComparison.OrdinalIgnoreCase);
         }
 
-        WriteCheckpoint(latestEventTime);
+        if (checkpoint is null || latestEventTime > checkpoint)
+        {
+            WriteCheckpoint(latestEventTime);
+        }
 
         if (enqueuedCount > 0)
         {
             logger.LogInformation("Fingerprint terminal poll queued {Count} attendance event(s).", enqueuedCount);
         }
+
+        return new AttendanceSyncResult(enqueuedCount, windowStart, windowEnd, null);
     }
 
     private static HttpClient CreateDeviceHttpClient(AttendancePollingOptions polling)
@@ -137,17 +174,21 @@ public class AttendancePollingService(
                 ["maxResults"] = Math.Clamp(polling.PageSize, 1, 30),
                 ["major"] = 5,
                 ["minor"] = 0,
-                ["startTime"] = windowStart.ToString(TimestampFormat),
-                ["endTime"] = windowEnd.ToString(TimestampFormat)
+                ["startTime"] = windowStart.ToString(TimestampFormat, CultureInfo.InvariantCulture),
+                ["endTime"] = windowEnd.ToString(TimestampFormat, CultureInfo.InvariantCulture)
             }
         };
 
         using var content = new StringContent(searchCondition.ToJsonString(), Encoding.UTF8, "application/json");
         string url = $"{polling.DeviceBaseUrl.TrimEnd('/')}{AcsEventPath}";
         using HttpResponseMessage response = await httpClient.PostAsync(url, content, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"Terminal returned HTTP {(int)response.StatusCode}: {responseBody}");
+        }
 
-        return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return JsonNode.Parse(responseBody);
     }
 
     private static QueuedPunch? ToQueuedPunch(JsonNode deviceEvent, string deviceBaseUrl)
@@ -189,3 +230,5 @@ public class AttendancePollingService(
 
     private record QueuedPunch(string Body, DateTimeOffset OccurredAt);
 }
+
+public record AttendanceSyncResult(int QueuedCount, DateTimeOffset? WindowStart, DateTimeOffset? WindowEnd, string? Error);

@@ -82,6 +82,15 @@ webhook. It catches punches the terminal failed to push. The checkpoint lives in
 looks back `InitialLookbackHours`. Overlap is safe: `ldms-web-api` de-duplicates by the
 device's `serialNo`. Requires `Attendance.Enabled` and `Attendance.Polling.Enabled`.
 
+### Manual sync
+
+`POST http://127.0.0.1:<ListenPort>/attendance/sync` runs one poll immediately and nudges the
+relay to drain the queue. It only needs `Attendance.Enabled` and `Polling.DeviceBaseUrl` (not
+`Polling.Enabled`), and rejects non-loopback callers. Optional `?from=<ISO-8601 timestamp>`
+re-pulls from that moment instead of the checkpoint (the checkpoint never moves backwards).
+Example: `curl -X POST "http://127.0.0.1:8770/attendance/sync?from=2026-10-01T00:00:00%2B05:30"`.
+Returns `{ queuedCount, windowStart, windowEnd, pendingRelayCount }`, or 502 with the device error.
+
 ## Build
 
 ```
