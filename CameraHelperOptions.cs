@@ -7,6 +7,7 @@ public class CameraHelperOptions
     public string[] AllowedOrigins { get; set; } = [];
     public AttendanceOptions Attendance { get; set; } = new();
     public PrinterOptions Printer { get; set; } = new();
+    public BadgeLoginOptions BadgeLogin { get; set; } = new();
 }
 
 public class CameraOptions

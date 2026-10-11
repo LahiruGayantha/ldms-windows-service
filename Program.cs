@@ -17,6 +17,9 @@ builder.Services.AddSingleton<CameraSnapshotClient>();
 builder.Services.AddSingleton<TagPrinterClient>();
 builder.Services.AddSingleton<AttendanceRelayService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AttendanceRelayService>());
+builder.Services.AddSingleton<DeviceKeyStore>();
+builder.Services.AddSingleton<DeviceIdentityStore>();
+builder.Services.AddHttpClient<BadgeApiClient>();
 builder.Services.AddSingleton<AttendancePollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AttendancePollingService>());
 
@@ -50,10 +53,24 @@ builder.Services.AddCors(corsOptions =>
     });
 });
 
+builder.Services.AddCors(corsOptions =>
+{
+    corsOptions.AddPolicy(BadgeScanEndpoints.CorsPolicyName, policy =>
+        policy.WithOrigins(helperOptions.BadgeLogin.FrontendOrigins)
+            .WithMethods("POST")
+            .WithHeaders("Content-Type"));
+});
+
 var app = builder.Build();
 
 app.UsePrivateNetworkAccess();
-app.UseCors("OutletFrontend");
+app.UseWhen(
+    context => BadgeScanEndpoints.IsBadgeRoute(context.Request.Path),
+    badgeBranch => badgeBranch.UseCors(BadgeScanEndpoints.CorsPolicyName));
+app.UseWhen(
+    context => !BadgeScanEndpoints.IsBadgeRoute(context.Request.Path),
+    otherBranch => otherBranch.UseCors("OutletFrontend"));
+app.MapBadgeScanEndpoints();
 
 app.MapGet("/health", (IOptionsMonitor<CameraHelperOptions> monitor, AttendanceRelayService relay) =>
 {
