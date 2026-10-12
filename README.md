@@ -172,6 +172,23 @@ dotnet publish LdmsOutletCameraHelper.csproj -c Release -r win-x64 --self-contai
 | GET | `/snapshot` | Digest-fetches the camera still, returns `image/jpeg` (HTTP 502 with a JSON `error` on failure) |
 | POST | `/print/tag` | Body `{ "tag": "SH1234", "tagCount": 2 }`. Always returns HTTP 200 with `{ "success": bool, "message": string }` - `success: false` covers a disabled/misconfigured printer, a busy/unresponsive machine, or a bad port, all distinguished by `message`. |
 | POST | `/attendance/events` | Only mapped when `Attendance.Enabled=true`. Accepts the terminal's raw push, queues it to disk, returns 200 immediately; a background loop relays it to `ldms-web-api` and deletes it once accepted. 403 if `AllowedDeviceIp` is set and the sender doesn't match. |
+| POST | `/device/keys` | Loopback listener only. Creates the machine-level non-exportable ECDSA P-256 key `BadgeLogin.DeviceKeyName` if missing and returns `{ "publicKey": base64 SPKI, "macAddresses": [...] }`. |
+| POST | `/device/identity` | Loopback listener only. Body `{ "deviceId": 7 }`. Stores the registered device id in `%ProgramData%\LdmsOutletCameraHelper\device-identity.json`. Returns 204. |
+| POST | `/badge/scan` | Loopback listener only. Body `{ "qrValue": "...", "bindingHash": "<sha256 hex>" }`. Requests a nonce from `ldms-web-api`, signs it with the device key and returns `{ "ticket": "..." }`. Any failure returns an empty HTTP 401. |
+
+## Badge login configuration
+
+Add to `%ProgramData%\LdmsOutletCameraHelper\appsettings.json` on each outlet PC (non-secret values only), then restart the service:
+
+```json
+"BadgeLogin": {
+  "ApiBaseUrl": "https://<ldms-web-api>",
+  "FrontendOrigins": [ "https://<ldms-frontend-origin>" ],
+  "DeviceKeyName": "LdmsOutletBadgeDeviceKey"
+}
+```
+
+`ApiBaseUrl` falls back to `Attendance.LdmsApiBaseUrl` when empty. With no `FrontendOrigins` the badge routes accept no browser origin. The three badge routes are served on the loopback listener only and answer 404 on the LAN-bound attendance port.
 
 ## Troubleshooting
 
