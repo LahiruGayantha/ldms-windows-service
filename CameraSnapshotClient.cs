@@ -16,9 +16,14 @@ public record SnapshotResult(bool Success, byte[]? Content, string ContentType, 
 // when the config file is edited.
 public class CameraSnapshotClient(IOptionsMonitor<CameraHelperOptions> options, ILogger<CameraSnapshotClient> logger)
 {
-    public async Task<SnapshotResult> GetSnapshotAsync(CancellationToken cancellationToken)
+    public Task<SnapshotResult> GetSnapshotAsync(CancellationToken cancellationToken) =>
+        GetSnapshotAsync(options.CurrentValue.Camera, cancellationToken);
+
+    public Task<SnapshotResult> GetAttendanceSnapshotAsync(CancellationToken cancellationToken) =>
+        GetSnapshotAsync(options.CurrentValue.AttendanceCamera, cancellationToken);
+
+    private async Task<SnapshotResult> GetSnapshotAsync(CameraOptions camera, CancellationToken cancellationToken)
     {
-        CameraOptions camera = options.CurrentValue.Camera;
         if (string.IsNullOrWhiteSpace(camera.SnapshotUrl))
         {
             return SnapshotResult.Failed("Camera snapshot URL is not configured on this outlet.");

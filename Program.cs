@@ -76,11 +76,13 @@ app.MapGet("/health", (IOptionsMonitor<CameraHelperOptions> monitor, AttendanceR
 {
     CameraHelperOptions current = monitor.CurrentValue;
     bool cameraConfigured = !string.IsNullOrWhiteSpace(current.Camera.SnapshotUrl);
+    bool attendanceCameraConfigured = !string.IsNullOrWhiteSpace(current.AttendanceCamera.SnapshotUrl);
     bool printerConfigured = current.Printer.Enabled && !string.IsNullOrWhiteSpace(current.Printer.PortName);
     return Results.Ok(new
     {
         status = "ok",
         cameraConfigured,
+        attendanceCameraConfigured,
         printerConfigured,
         attendanceEnabled = current.Attendance.Enabled,
         attendanceQueueDepth = current.Attendance.Enabled ? relay.PendingCount() : (int?)null
@@ -90,6 +92,14 @@ app.MapGet("/health", (IOptionsMonitor<CameraHelperOptions> monitor, AttendanceR
 app.MapGet("/snapshot", async (CameraSnapshotClient snapshotClient, CancellationToken cancellationToken) =>
 {
     SnapshotResult result = await snapshotClient.GetSnapshotAsync(cancellationToken);
+    return result.Success
+        ? Results.File(result.Content!, result.ContentType)
+        : Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status502BadGateway);
+});
+
+app.MapGet("/snapshot/attendance", async (CameraSnapshotClient snapshotClient, CancellationToken cancellationToken) =>
+{
+    SnapshotResult result = await snapshotClient.GetAttendanceSnapshotAsync(cancellationToken);
     return result.Success
         ? Results.File(result.Content!, result.ContentType)
         : Results.Json(new { error = result.Error }, statusCode: StatusCodes.Status502BadGateway);

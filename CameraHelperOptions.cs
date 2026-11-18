@@ -3,6 +3,7 @@ namespace LdmsOutletCameraHelper;
 public class CameraHelperOptions
 {
     public CameraOptions Camera { get; set; } = new();
+    public CameraOptions AttendanceCamera { get; set; } = new();
     public int ListenPort { get; set; } = 8770;
     public string[] AllowedOrigins { get; set; } = [];
     public AttendanceOptions Attendance { get; set; } = new();
